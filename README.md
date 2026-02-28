@@ -1,5 +1,8 @@
 Lightweight bubblewrap wrapper for sandboxing dev tools. Isolates file writes, tmp, and session history per project.
 
+**Main repository:** [codeberg.org/Grauwolf/sandbox-run](https://codeberg.org/Grauwolf/sandbox-run)
+| Mirrors: [GitHub](https://github.com/Grauwolf/sandbox-run) · [GitLab](https://gitlab.com/Grauwolf/sandbox-run)
+
 ## What It Does
 
 This script creates a lightweight sandbox around commands you run using [bubblewrap](https://github.com/containers/bubblewrap). Your system's installed software (compilers, interpreters, CLI tools) is available inside the sandbox, but only for use. The sandbox cannot modify system files.
@@ -289,6 +292,10 @@ SANDBOX_RUN_PRESETS_EXTRA=pi sandbox-run pi
 ```
 
 Each project gets its own isolated directory based on a hash of the project path. The `local/` directory is mounted as `~/.local` inside the sandbox, so tools use their default paths.
+
+## AI Use Disclaimer
+
+This codebase has been built with the support of coding agents.
 
 ## License
 
