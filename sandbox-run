@@ -1,0 +1,340 @@
+#!/usr/bin/env bash
+#
+# sandbox-run - lightweight bubblewrap wrapper for sandboxing dev tools
+# Based on https://github.com/sandbox-utils/sandbox-run (AGPL-3.0)
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+
+set -o errexit
+set -o nounset
+set -o pipefail
+
+yell() { echo "$0: $*" >&2; }
+die() { yell "$*"; exit 111; }
+
+# Parse colon-separated env var into array
+parse_paths() {
+    local var="$1"
+    local -n arr="$2"
+    [[ -z "${!var:-}" ]] && return
+    IFS=':' read -ra paths <<< "${!var}"
+    arr+=("${paths[@]}")
+}
+
+# Boolean check
+is_enabled() {
+    [[ "${!1:-0}" == "1" ]]
+}
+
+if is_enabled SANDBOX_RUN_TRACE; then
+    set -o xtrace
+fi
+
+# Cleanup function for background processes and temp files
+CLEANUP_PIDS=()
+CLEANUP_FILES=()
+cleanup() {
+    for pid in "${CLEANUP_PIDS[@]}"; do
+        kill "$pid" 2>/dev/null || true
+    done
+    # Wait for processes to actually terminate before removing their files
+    for pid in "${CLEANUP_PIDS[@]}"; do
+        wait "$pid" 2>/dev/null || true
+    done
+    for f in "${CLEANUP_FILES[@]}"; do
+        rm -rf "$f" 2>/dev/null || true
+    done
+}
+trap cleanup EXIT
+
+
+if ! command -v bwrap > /dev/null 2>&1
+then
+  die "Please install bubblewrap!"
+fi
+
+# Determine command to run:
+# - Symlink mode (e.g., ~/bin/claude -> sandbox-run): use symlink name
+# - Direct mode (e.g., sandbox-run claude): use first argument
+# The sandbox's PATH will resolve it (includes ~/.local/bin + system paths)
+bin="${0##*/}"
+if [[ "$bin" == 'sandbox-run' ]]; then
+    if [[ $# -eq 0 || "$1" == "-h" || "$1" == "--help" ]]; then
+        echo "Usage: $0 <command> [args...]"
+        echo "Run a command inside a bubblewrap sandbox."
+        exit 0
+    fi
+    bin="$1"
+    shift
+fi
+
+PROJECT_DIR="$(pwd)"
+PROJECT_HASH=$(echo "$PROJECT_DIR" | sha256sum | cut -c1-12)
+UID_NUM=$(id -u)
+
+# Base sandbox directories
+SANDBOX_ROOT="$HOME/.sandbox-run"
+SANDBOX_CACHE="$SANDBOX_ROOT/cache"
+SANDBOX_LOCAL="$SANDBOX_ROOT/local"
+
+# Ensure base directories exist
+mkdir -p "$SANDBOX_CACHE" "$SANDBOX_LOCAL"
+
+###############################################################################
+# CONFIGURATION
+# Customize these arrays to control what's available inside the sandbox
+###############################################################################
+
+# Namespace isolation options
+ISOLATION_OPTS=(
+    --unshare-all
+    # Alternative: individual unshare options instead of --unshare-all
+    # --unshare-pid
+    # --unshare-ipc
+    # --unshare-uts
+    # --unshare-user
+    # --unshare-cgroup
+)
+
+# Network isolation
+if is_enabled SANDBOX_RUN_NO_NET; then
+    NET_OPTS=(--unshare-net)
+    yell "Network access disabled (SANDBOX_RUN_NO_NET=1)"
+else
+    NET_OPTS=(--share-net)
+fi
+
+# System binds (read-only, using --ro-bind-try so missing paths don't cause errors)
+RO_BINDS=(
+    /usr
+    /lib
+    /lib64
+    /bin
+    /opt
+    # /sbin  # uncomment if tools like ip, iptables etc. are needed
+    /etc/alternatives
+    /etc/ca-certificates
+    /etc/crypto-policies
+    /etc/resolv.conf
+    /etc/hosts
+    /etc/ssl
+    /etc/pki
+    /etc/localtime
+    /etc/timezone
+    /etc/os-release
+    /var/lib/ca-certificates
+    # NOTE: /etc/passwd and /etc/group are NOT bound here.
+    # Instead, we create synthetic minimal versions via --bind-data at the end
+    # of the bwrap call. This avoids leaking info about all users/groups on the
+    # host system. The synthetic files contain only:
+    #   - passwd: current user + nobody (65534) as fallback
+    #   - group: user's primary group + nobody + common desktop groups
+    # The heredocs (5<<EOF, 4<<EOF2) pipe 'getent' output to file descriptors
+    # that bwrap mounts as /etc/passwd and /etc/group.
+    "$HOME/.config/git/"
+)
+
+# Dynamic arrays populated by presets
+RW_BINDS=()
+SANDBOX_BINDS=()
+SHARED_BINDS=()
+DBUS_TALK_NAMES=()  # D-Bus names to proxy (collected from presets)
+
+# Flags that presets can modify
+DISABLE_NEW_SESSION=0  # Set to 1 to allow job control (needed for job management)
+
+# Files to block (bind /dev/null over them)
+# Commented entries are examples; uncomment or add paths as needed for your setup
+BLOCKED=(
+    #"$PROJECT_DIR/.env"
+    #"$PROJECT_DIR/.env.local"
+    "$PROJECT_DIR/.env.production"
+)
+
+###############################################################################
+# LOAD PRESETS
+###############################################################################
+
+# Resolve the directory where the sandbox-run script lives (follows symlinks)
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+
+# Source preset files from:
+# 1. Built-in presets shipped alongside the script (presets.d/)
+# 2. User-defined presets in ~/.sandbox-run/presets.d/
+# Filename (without .sh) becomes the preset name: my-tool.sh -> configure_my_tool
+# To add custom presets, copy a .sh file from presets.d/ to ~/.sandbox-run/presets.d/
+# or create a new one. Example: ~/.sandbox-run/presets.d/audio.sh
+#   configure_audio() {
+#       RW_BINDS+=("${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pulse")
+#   }
+# Then enable per-project: SANDBOX_RUN_PRESETS_EXTRA=audio
+for _preset_dir in "$SCRIPT_DIR/presets.d" "$SANDBOX_ROOT/presets.d"; do
+    if [[ -d "$_preset_dir" ]]; then
+        for preset_file in "$_preset_dir"/*.sh; do
+            [[ -f "$preset_file" ]] && source "$preset_file"
+        done
+    fi
+done
+unset _preset_dir
+
+# Default presets (user presets require explicit SANDBOX_RUN_PRESETS_EXTRA)
+PRESETS=(npm python go cargo dbus)
+
+# Extra presets: opt-in via SANDBOX_RUN_PRESETS_EXTRA=claude:pi:wayland
+# AI tools: claude, opencode, pi, vibe
+# VCS tools: glab, forgejo
+# Other: docker, wayland
+PRESETS_EXTRA=()
+
+# Override defaults with SANDBOX_RUN_PRESETS=claude:npm:go (empty = load nothing)
+if [[ -n "${SANDBOX_RUN_PRESETS+set}" ]]; then
+    if [[ -n "$SANDBOX_RUN_PRESETS" ]]; then
+        IFS=':' read -ra PRESETS <<< "$SANDBOX_RUN_PRESETS"
+    else
+        PRESETS=()
+    fi
+fi
+
+# Add extra presets with SANDBOX_RUN_PRESETS_EXTRA=wayland
+if [[ -n "${SANDBOX_RUN_PRESETS_EXTRA:-}" ]]; then
+    IFS=':' read -ra PRESETS_EXTRA <<< "$SANDBOX_RUN_PRESETS_EXTRA"
+fi
+
+# Combine default and extra presets
+PRESETS+=("${PRESETS_EXTRA[@]}")
+
+# Arrays populated by presets
+ENV_PRESET_OPTS=()
+PATH_ADDITIONS=("$HOME/.local/bin")  # Base path, presets may add more
+DBUS_OPTS=()
+LOADED_PRESETS=()
+
+for preset in "${PRESETS[@]}"; do
+    fn="configure_$preset"
+    if declare -f "$fn" > /dev/null; then
+        "$fn"
+        LOADED_PRESETS+=("$preset")
+    else
+        # Warn about missing presets only when using explicit override (catches typos)
+        [[ -n "${SANDBOX_RUN_PRESETS:-}" ]] && yell "Warning: Preset function '$fn' not found"
+    fi
+done
+
+# Print loaded presets
+if [[ ${#LOADED_PRESETS[@]} -gt 0 ]]; then
+    yell "Presets: ${LOADED_PRESETS[*]}"
+fi
+
+# Build PATH from preset additions (duplicates are harmless)
+if [[ ${#PATH_ADDITIONS[@]} -gt 0 ]]; then
+    PRESET_PATH=$(printf '%s:' "${PATH_ADDITIONS[@]}" | tr -s ':' | sed 's/:$//')
+    ENV_PRESET_OPTS+=(--setenv PATH "$PRESET_PATH:$PATH")
+fi
+
+# Append paths from environment variables
+parse_paths SANDBOX_RUN_RO_BIND RO_BINDS
+parse_paths SANDBOX_RUN_RW_BIND RW_BINDS
+parse_paths SANDBOX_RUN_BLOCKED BLOCKED
+
+# Start D-Bus proxy with accumulated permissions from presets
+if [[ ${#DBUS_TALK_NAMES[@]} -gt 0 ]]; then
+    if ! command -v xdg-dbus-proxy >/dev/null 2>&1; then
+        yell "xdg-dbus-proxy not found, D-Bus features disabled (install xdg-dbus-proxy)"
+    elif [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]]; then
+        yell "DBUS_SESSION_BUS_ADDRESS not set, D-Bus features disabled"
+    else
+        DBUS_PROXY_DIR=$(mktemp -d)
+        DBUS_PROXY_SOCKET="$DBUS_PROXY_DIR/bus"
+        CLEANUP_FILES+=("$DBUS_PROXY_DIR")
+
+        # Build --talk arguments for each permission
+        DBUS_PROXY_ARGS=(--filter)
+        for name in "${DBUS_TALK_NAMES[@]}"; do
+            DBUS_PROXY_ARGS+=("--talk=$name")
+        done
+
+        xdg-dbus-proxy "$DBUS_SESSION_BUS_ADDRESS" "$DBUS_PROXY_SOCKET" \
+            "${DBUS_PROXY_ARGS[@]}" &
+        CLEANUP_PIDS+=($!)
+
+        # Wait for proxy socket to appear
+        for _ in {1..50}; do
+            [[ -S "$DBUS_PROXY_SOCKET" ]] && break
+            sleep 0.1
+        done
+
+        if [[ -S "$DBUS_PROXY_SOCKET" ]]; then
+            yell "D-Bus proxy enabled (${DBUS_TALK_NAMES[*]})"
+            DBUS_OPTS+=(--bind "$DBUS_PROXY_DIR" "$DBUS_PROXY_DIR")
+            ENV_PRESET_OPTS+=(--setenv DBUS_SESSION_BUS_ADDRESS "unix:path=$DBUS_PROXY_SOCKET")
+        else
+            yell "D-Bus proxy failed to start"
+        fi
+    fi
+fi
+
+###############################################################################
+# END CONFIGURATION
+###############################################################################
+
+
+# Build bwrap bind options (using -try variants so missing paths don't cause errors)
+BIND_OPTS=()
+# Base binds: sandbox local as ~/.local (tools default to ~/.local paths)
+BIND_OPTS+=(--bind "$SANDBOX_LOCAL" "$HOME/.local")
+BIND_OPTS+=(--bind "$SANDBOX_CACHE" "$SANDBOX_CACHE")
+for p in "${RO_BINDS[@]}"; do BIND_OPTS+=(--ro-bind-try "$p" "$p"); done
+for p in "${RW_BINDS[@]}"; do BIND_OPTS+=(--bind-try "$p" "$p"); done
+# Sandbox dirs first (source:dest format)
+for entry in "${SANDBOX_BINDS[@]}"; do
+    src="${entry%%:*}"
+    dst="${entry##*:}"
+    BIND_OPTS+=(--bind "$src" "$dst")
+done
+# Shared items overlaid on top of sandbox
+for p in "${SHARED_BINDS[@]}"; do BIND_OPTS+=(--bind-try "$p" "$p"); done
+for p in "${BLOCKED[@]}"; do
+    [[ -e "$p" ]] && BIND_OPTS+=(--ro-bind /dev/null "$p")
+done
+
+# Environment variables to pass into sandbox
+ENV_OPTS=(
+    --setenv XDG_RUNTIME_DIR "/run/user/$UID_NUM"
+    "${ENV_PRESET_OPTS[@]}"
+)
+
+# Session isolation (default: enabled for security)
+# Presets can disable this to allow job control (bg, fg, Ctrl+Z)
+SESSION_OPTS=()
+if [[ "$DISABLE_NEW_SESSION" -eq 0 ]]; then
+    SESSION_OPTS+=(--new-session)
+fi
+
+bwrap \
+     --tmpfs /tmp \
+     --tmpfs /run \
+     --tmpfs /var \
+     --symlink /run /var/run \
+     --symlink /tmp /var/tmp \
+     --dir "/run/user/$UID_NUM" \
+     "${BIND_OPTS[@]}" \
+     ${SANDBOX_RUN_BWRAP_ARGS:-} \
+     --bind "$PROJECT_DIR" "$PROJECT_DIR" \
+     "${DBUS_OPTS[@]}" \
+     --proc /proc \
+     --dev /dev \
+     "${ISOLATION_OPTS[@]}" \
+     "${NET_OPTS[@]}" \
+     "${ENV_OPTS[@]}" \
+     --hostname sandbox-run \
+     "${SESSION_OPTS[@]}" \
+     --die-with-parent \
+     --chdir "${SANDBOX_CHDIR:-$PROJECT_DIR}" \
+     --bind-data 5 /etc/passwd \
+     --bind-data 4 /etc/group \
+     -- "$bin" "$@" \
+     5<<EOF 4<<EOF2
+$(getent passwd "$UID_NUM" 65534)
+EOF
+$(getent group "$(id -g)" 65534 adm sudo audio dip video plugdev staff users netdev)
+EOF2
