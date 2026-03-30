@@ -47,6 +47,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Prevent nested sandboxing (causes overhead and bind-mount conflicts)
+if [[ -n "${SANDBOX_RUN:-}" ]]; then
+    yell "warning: already sandboxed, executing directly"
+    exec "$@"
+fi
+
 
 if ! command -v bwrap > /dev/null 2>&1
 then
@@ -299,6 +305,7 @@ done
 
 # Environment variables to pass into sandbox
 ENV_OPTS=(
+    --setenv SANDBOX_RUN 1
     --setenv XDG_RUNTIME_DIR "/run/user/$UID_NUM"
     "${ENV_PRESET_OPTS[@]}"
 )
