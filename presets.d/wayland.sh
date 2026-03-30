@@ -24,6 +24,7 @@ configure_wayland() {
     # Pass through display-related environment
     ENV_PRESET_OPTS+=(
         --setenv WAYLAND_DISPLAY "$wayland_socket"
+        --setenv XDG_RUNTIME_DIR "$runtime_dir"
         --setenv XDG_SESSION_TYPE "wayland"
     )
 
