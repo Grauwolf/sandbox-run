@@ -172,6 +172,7 @@ Extra presets are opt-in and must be explicitly enabled via `SANDBOX_RUN_PRESETS
 | `forgejo` | Forgejo CLI config |
 | `docker` | Docker socket (proxy or direct) |
 | `wayland` | Wayland display + GPU for GUI apps (Chromium, etc.) |
+| `audio` | PipeWire/PulseAudio runtime sockets for sound output/input |
 
 Add extra presets with `SANDBOX_RUN_PRESETS_EXTRA`:
 
@@ -182,8 +183,11 @@ SANDBOX_RUN_PRESETS_EXTRA=pi sandbox-run pi
 # Enable Wayland for GUI applications
 SANDBOX_RUN_PRESETS_EXTRA=wayland sandbox-run chromium
 
+# Enable GUI + audio
+SANDBOX_RUN_PRESETS_EXTRA=wayland:audio sandbox-run chromium
+
 # Multiple extras
-SANDBOX_RUN_PRESETS_EXTRA=pi:wayland sandbox-run pi
+SANDBOX_RUN_PRESETS_EXTRA=pi:wayland:audio sandbox-run pi
 ```
 
 For persistent configuration, set in your shell profile:
@@ -217,9 +221,10 @@ Built-in presets are shipped in the `presets.d/` directory alongside the script.
 To add your own presets or override built-in ones, create files in `~/.sandbox-run/presets.d/`. The filename (without `.sh`) becomes the preset name:
 
 ```bash
-# ~/.sandbox-run/presets.d/audio.sh
-configure_audio() {
-    RW_BINDS+=("${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pulse")
+# ~/.sandbox-run/presets.d/my-app.sh
+configure_my_app() {
+    RO_BINDS+=("/path/to/my-app/readonly")
+    RW_BINDS+=("/path/to/my-app/writable")
 }
 ```
 
@@ -229,10 +234,10 @@ Custom presets are **sourced** (functions defined) but **not auto-loaded**. Enab
 
 ```bash
 # Per-project via .envrc
-export SANDBOX_RUN_PRESETS_EXTRA="${SANDBOX_RUN_PRESETS_EXTRA}:audio"
+export SANDBOX_RUN_PRESETS_EXTRA="${SANDBOX_RUN_PRESETS_EXTRA}:my-app"
 
 # Or one-off
-SANDBOX_RUN_PRESETS_EXTRA=audio sandbox-run some-audio-app
+SANDBOX_RUN_PRESETS_EXTRA=my-app sandbox-run some-app
 ```
 
 ## Package Manager Isolation

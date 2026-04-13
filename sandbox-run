@@ -169,11 +169,12 @@ SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 # 2. User-defined presets in ~/.sandbox-run/presets.d/
 # Filename (without .sh) becomes the preset name: my-tool.sh -> configure_my_tool
 # To add custom presets, copy a .sh file from presets.d/ to ~/.sandbox-run/presets.d/
-# or create a new one. Example: ~/.sandbox-run/presets.d/audio.sh
-#   configure_audio() {
-#       RW_BINDS+=("${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pulse")
+# or create a new one. Example: ~/.sandbox-run/presets.d/my-app.sh
+#   configure_my_app() {
+#       RO_BINDS+=("/path/to/my-app/readonly")
+#       RW_BINDS+=("/path/to/my-app/writable")
 #   }
-# Then enable per-project: SANDBOX_RUN_PRESETS_EXTRA=audio
+# Then enable per-project: SANDBOX_RUN_PRESETS_EXTRA=my-app
 for _preset_dir in "$SCRIPT_DIR/presets.d" "$SANDBOX_ROOT/presets.d"; do
     if [[ -d "$_preset_dir" ]]; then
         for preset_file in "$_preset_dir"/*.sh; do
@@ -186,10 +187,10 @@ unset _preset_dir
 # Default presets (user presets require explicit SANDBOX_RUN_PRESETS_EXTRA)
 PRESETS=(npm python go cargo dbus)
 
-# Extra presets: opt-in via SANDBOX_RUN_PRESETS_EXTRA=claude:pi:wayland
+# Extra presets: opt-in via SANDBOX_RUN_PRESETS_EXTRA=claude:pi:wayland:audio
 # AI tools: claude, opencode, pi, vibe
 # VCS tools: glab, forgejo
-# Other: docker, wayland
+# Other: audio, docker, wayland
 PRESETS_EXTRA=()
 
 # Override defaults with SANDBOX_RUN_PRESETS=claude:npm:go (empty = load nothing)
