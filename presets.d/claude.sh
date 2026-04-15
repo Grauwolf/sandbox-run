@@ -17,6 +17,7 @@ configure_claude() {
         "$HOME/.claude/cache"
         "$HOME/.claude/commands"
         "$HOME/.claude/plugins"
+        "$HOME/.claude/skills"
         "$HOME/.claude/.credentials.json"
         "$HOME/.claude/settings.json"
     )
