@@ -194,6 +194,7 @@ Extra presets are opt-in and must be explicitly enabled via `SANDBOX_RUN_PRESETS
 | `claude` | Claude Code session isolation per project |
 | `opencode` | OpenCode session isolation per project |
 | `vibe` | Mistral Vibe session isolation per project |
+| `git` | User-global Git config (`$XDG_CONFIG_HOME/git`, `~/.gitconfig`) read-only |
 | `glab` | GitLab CLI config |
 | `forgejo` | Forgejo CLI config |
 | `docker` | Docker socket (proxy or direct) |

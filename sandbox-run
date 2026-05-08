@@ -137,7 +137,6 @@ RO_BINDS=(
     #   - group: user's primary group + nobody + common desktop groups
     # The heredocs (5<<EOF, 4<<EOF2) pipe 'getent' output to file descriptors
     # that bwrap mounts as /etc/passwd and /etc/group.
-    "$HOME/.config/git/"
 )
 
 # Dynamic arrays populated by presets
@@ -189,7 +188,7 @@ PRESETS=(npm python go cargo dbus)
 
 # Extra presets: opt-in via SANDBOX_RUN_PRESETS_EXTRA=claude:pi:wayland:audio
 # AI tools: claude, opencode, pi, vibe
-# VCS tools: glab, forgejo
+# VCS tools: git, glab, forgejo
 # Other: audio, docker, tmux, wayland
 PRESETS_EXTRA=()
 
