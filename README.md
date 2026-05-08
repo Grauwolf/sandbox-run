@@ -109,6 +109,31 @@ services:
       - "127.0.0.1:2375:2375"
 ```
 
+## tmux Support
+
+Enable the tmux preset with `SANDBOX_RUN_PRESETS_EXTRA=tmux` (or add `tmux` to your existing extras).
+
+The preset mounts the tmux socket directory so clients inside the sandbox can connect to a tmux server running on the host.
+
+Socket detection order:
+
+1. `SANDBOX_RUN_TMUX_SOCKET` (explicit override)
+2. Current `TMUX` environment variable (when already inside tmux)
+3. Common defaults (`/run/tmux/<uid>/default` and `${TMUX_TMPDIR:-/tmp}/tmux-<uid>/default`)
+
+Examples:
+
+```bash
+# Auto-detect + use resolved socket explicitly
+SANDBOX_RUN_PRESETS_EXTRA=tmux \
+  sandbox-run sh -lc 'tmux -S "$SANDBOX_RUN_TMUX_SOCKET" ls'
+
+# Explicit socket path (most reliable)
+SANDBOX_RUN_PRESETS_EXTRA=tmux \
+  SANDBOX_RUN_TMUX_SOCKET=/run/tmux/$(id -u)/default \
+  sandbox-run sh -lc 'tmux -S "$SANDBOX_RUN_TMUX_SOCKET" attach'
+```
+
 ## Customization
 
 The script has a few arrays you can edit to adjust what's exposed inside the sandbox:
@@ -131,6 +156,7 @@ All configuration uses the `SANDBOX_RUN_` prefix:
 | `SANDBOX_RUN_BWRAP_ARGS="args"` | Extra bwrap arguments |
 | `SANDBOX_RUN_PRESETS=name:name` | Override default presets (see below) |
 | `SANDBOX_RUN_PRESETS_EXTRA=name:name` | Add extra presets (see below) |
+| `SANDBOX_RUN_TMUX_SOCKET=/path/to/socket` | Override tmux socket path (tmux preset) |
 
 Examples:
 
@@ -171,6 +197,7 @@ Extra presets are opt-in and must be explicitly enabled via `SANDBOX_RUN_PRESETS
 | `glab` | GitLab CLI config |
 | `forgejo` | Forgejo CLI config |
 | `docker` | Docker socket (proxy or direct) |
+| `tmux` | tmux host socket access |
 | `wayland` | Wayland display + GPU for GUI apps (Chromium, etc.) |
 | `audio` | PipeWire/PulseAudio runtime sockets for sound output/input |
 
@@ -185,6 +212,9 @@ SANDBOX_RUN_PRESETS_EXTRA=wayland sandbox-run chromium
 
 # Enable GUI + audio
 SANDBOX_RUN_PRESETS_EXTRA=wayland:audio sandbox-run chromium
+
+# Enable tmux access
+SANDBOX_RUN_PRESETS_EXTRA=tmux sandbox-run tmux ls
 
 # Multiple extras
 SANDBOX_RUN_PRESETS_EXTRA=pi:wayland:audio sandbox-run pi

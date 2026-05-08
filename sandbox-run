@@ -190,7 +190,7 @@ PRESETS=(npm python go cargo dbus)
 # Extra presets: opt-in via SANDBOX_RUN_PRESETS_EXTRA=claude:pi:wayland:audio
 # AI tools: claude, opencode, pi, vibe
 # VCS tools: glab, forgejo
-# Other: audio, docker, wayland
+# Other: audio, docker, tmux, wayland
 PRESETS_EXTRA=()
 
 # Override defaults with SANDBOX_RUN_PRESETS=claude:npm:go (empty = load nothing)
