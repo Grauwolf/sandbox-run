@@ -35,7 +35,7 @@ ln -s ~/bin/sandbox-run ~/bin/pi
 
 ## Requirements
 
-You need bubblewrap installed. For desktop notifications inside the sandbox, xdg-dbus-proxy is optional but recommended.
+You need bubblewrap installed. For sandboxed D-Bus integrations such as desktop notifications, xdg-dbus-proxy is optional but recommended.
 
 ```bash
 # Debian/Ubuntu
@@ -154,6 +154,9 @@ All configuration uses the `SANDBOX_RUN_` prefix:
 | `SANDBOX_RUN_RW_BIND=path:path` | Additional read-write binds |
 | `SANDBOX_RUN_BLOCKED=path:path` | Additional paths to block |
 | `SANDBOX_RUN_BWRAP_ARGS="args"` | Extra bwrap arguments |
+| `SANDBOX_RUN_DBUS_TALK=name:name` | Additional D-Bus names to allow via `xdg-dbus-proxy --talk` |
+| `SANDBOX_RUN_DBUS_CALL=name=rule:name=rule` | Additional D-Bus method rules via `xdg-dbus-proxy --call` |
+| `SANDBOX_RUN_DBUS_BROADCAST=name=rule:name=rule` | Additional D-Bus signal rules via `xdg-dbus-proxy --broadcast` |
 | `SANDBOX_RUN_PRESETS=name:name` | Override default presets (see below) |
 | `SANDBOX_RUN_PRESETS_EXTRA=name:name` | Add extra presets (see below) |
 | `SANDBOX_RUN_TMUX_SOCKET=/path/to/socket` | Override tmux socket path (tmux preset) |
@@ -172,6 +175,9 @@ SANDBOX_RUN_BLOCKED=.env.local:.env.development sandbox-run make
 
 # Extra bwrap arguments
 SANDBOX_RUN_BWRAP_ARGS="--tmpfs /scratch" sandbox-run python script.py
+
+# Allow local KDE PowerDevil sleep-inhibition calls
+export SANDBOX_RUN_DBUS_CALL="org.kde.Solid.PowerManagement.PolicyAgent=org.kde.Solid.PowerManagement.PolicyAgent.AddInhibition@/org/kde/Solid/PowerManagement/PolicyAgent:org.kde.Solid.PowerManagement.PolicyAgent=org.kde.Solid.PowerManagement.PolicyAgent.ReleaseInhibition@/org/kde/Solid/PowerManagement/PolicyAgent"
 ```
 
 ### Presets
@@ -184,7 +190,7 @@ Tool-specific setup is organized into presets. Default presets provide common de
 | `python` | uv/pip cache |
 | `go` | Go module cache and GOPATH |
 | `cargo` | Cargo/Rust home directory |
-| `dbus` | D-Bus proxy for desktop notifications |
+| `dbus` | D-Bus proxy helpers; enables desktop notifications by default |
 
 Extra presets are opt-in and must be explicitly enabled via `SANDBOX_RUN_PRESETS_EXTRA`:
 
@@ -260,6 +266,15 @@ configure_my_app() {
 ```
 
 User presets in `~/.sandbox-run/presets.d/` are sourced after the built-in ones, so you can override any built-in preset by redefining its function (e.g., create `npm.sh` with your own `configure_npm`).
+
+Presets can request D-Bus proxy permissions with helpers from the built-in `dbus` preset:
+
+```bash
+configure_my_app() {
+    dbus_talk "org.example.Service"
+    dbus_call "org.example.Service=org.example.Interface.Method@/org/example/Object"
+}
+```
 
 Custom presets are **sourced** (functions defined) but **not auto-loaded**. Enable them explicitly:
 

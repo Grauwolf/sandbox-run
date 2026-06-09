@@ -143,7 +143,6 @@ RO_BINDS=(
 RW_BINDS=()
 SANDBOX_BINDS=()
 SHARED_BINDS=()
-DBUS_TALK_NAMES=()  # D-Bus names to proxy (collected from presets)
 EXTRA_BWRAP_OPTS=()
 SANDBOX_RUN_FINALIZERS=()
 
@@ -214,7 +213,6 @@ PRESETS+=("${PRESETS_EXTRA[@]}")
 # Arrays populated by presets
 ENV_PRESET_OPTS=()
 PATH_ADDITIONS=("$HOME/.local/bin")  # Base path, presets may add more
-DBUS_OPTS=()
 LOADED_PRESETS=()
 
 for preset in "${PRESETS[@]}"; do
@@ -252,43 +250,6 @@ for finalizer in "${SANDBOX_RUN_FINALIZERS[@]}"; do
         yell "Warning: finalizer function '$finalizer' not found"
     fi
 done
-
-# Start D-Bus proxy with accumulated permissions from presets
-if [[ ${#DBUS_TALK_NAMES[@]} -gt 0 ]]; then
-    if ! command -v xdg-dbus-proxy >/dev/null 2>&1; then
-        yell "xdg-dbus-proxy not found, D-Bus features disabled (install xdg-dbus-proxy)"
-    elif [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]]; then
-        yell "DBUS_SESSION_BUS_ADDRESS not set, D-Bus features disabled"
-    else
-        DBUS_PROXY_DIR=$(mktemp -d)
-        DBUS_PROXY_SOCKET="$DBUS_PROXY_DIR/bus"
-        CLEANUP_FILES+=("$DBUS_PROXY_DIR")
-
-        # Build --talk arguments for each permission
-        DBUS_PROXY_ARGS=(--filter)
-        for name in "${DBUS_TALK_NAMES[@]}"; do
-            DBUS_PROXY_ARGS+=("--talk=$name")
-        done
-
-        xdg-dbus-proxy "$DBUS_SESSION_BUS_ADDRESS" "$DBUS_PROXY_SOCKET" \
-            "${DBUS_PROXY_ARGS[@]}" &
-        CLEANUP_PIDS+=($!)
-
-        # Wait for proxy socket to appear
-        for _ in {1..50}; do
-            [[ -S "$DBUS_PROXY_SOCKET" ]] && break
-            sleep 0.1
-        done
-
-        if [[ -S "$DBUS_PROXY_SOCKET" ]]; then
-            yell "D-Bus proxy enabled (${DBUS_TALK_NAMES[*]})"
-            DBUS_OPTS+=(--bind "$DBUS_PROXY_DIR" "$DBUS_PROXY_DIR")
-            ENV_PRESET_OPTS+=(--setenv DBUS_SESSION_BUS_ADDRESS "unix:path=$DBUS_PROXY_SOCKET")
-        else
-            yell "D-Bus proxy failed to start"
-        fi
-    fi
-fi
 
 ###############################################################################
 # END CONFIGURATION
@@ -338,7 +299,6 @@ bwrap \
      "${BIND_OPTS[@]}" \
      ${SANDBOX_RUN_BWRAP_ARGS:-} \
      --bind "$PROJECT_DIR" "$PROJECT_DIR" \
-     "${DBUS_OPTS[@]}" \
      "${EXTRA_BWRAP_OPTS[@]}" \
      --proc /proc \
      --dev /dev \

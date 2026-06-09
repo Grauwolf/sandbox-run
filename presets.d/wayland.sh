@@ -30,12 +30,11 @@ configure_wayland() {
 
     # Portal permissions for file dialogs, screen sharing, etc.
     # These go through the D-Bus proxy (started later)
-    DBUS_TALK_NAMES+=(
-        "org.freedesktop.portal.Desktop"
-        "org.freedesktop.portal.FileChooser"
-        "org.freedesktop.portal.OpenURI"
+    dbus_talk \
+        "org.freedesktop.portal.Desktop" \
+        "org.freedesktop.portal.FileChooser" \
+        "org.freedesktop.portal.OpenURI" \
         "org.freedesktop.portal.Screenshot"
-    )
 
     # Disable --new-session to allow job control in bash
     DISABLE_NEW_SESSION=1
