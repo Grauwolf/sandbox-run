@@ -144,6 +144,8 @@ RW_BINDS=()
 SANDBOX_BINDS=()
 SHARED_BINDS=()
 DBUS_TALK_NAMES=()  # D-Bus names to proxy (collected from presets)
+EXTRA_BWRAP_OPTS=()
+SANDBOX_RUN_FINALIZERS=()
 
 # Flags that presets can modify
 DISABLE_NEW_SESSION=0  # Set to 1 to allow job control (needed for job management)
@@ -242,6 +244,15 @@ parse_paths SANDBOX_RUN_RO_BIND RO_BINDS
 parse_paths SANDBOX_RUN_RW_BIND RW_BINDS
 parse_paths SANDBOX_RUN_BLOCKED BLOCKED
 
+# Let presets do any setup that depends on all presets having run.
+for finalizer in "${SANDBOX_RUN_FINALIZERS[@]}"; do
+    if declare -f "$finalizer" >/dev/null; then
+        "$finalizer"
+    else
+        yell "Warning: finalizer function '$finalizer' not found"
+    fi
+done
+
 # Start D-Bus proxy with accumulated permissions from presets
 if [[ ${#DBUS_TALK_NAMES[@]} -gt 0 ]]; then
     if ! command -v xdg-dbus-proxy >/dev/null 2>&1; then
@@ -328,6 +339,7 @@ bwrap \
      ${SANDBOX_RUN_BWRAP_ARGS:-} \
      --bind "$PROJECT_DIR" "$PROJECT_DIR" \
      "${DBUS_OPTS[@]}" \
+     "${EXTRA_BWRAP_OPTS[@]}" \
      --proc /proc \
      --dev /dev \
      "${ISOLATION_OPTS[@]}" \
