@@ -299,7 +299,7 @@ Inside the sandbox, `~/.local` maps to `~/.sandbox-run/local/` on the host. Tool
 | Tool | Cache (host) | Data (in sandbox) | Binaries (in sandbox) |
 |------|--------------|-------------------|----------------------|
 | npm | `~/.sandbox-run/cache/npm` | `~/.local/share/npm` | `~/.local/share/npm/bin` |
-| pnpm | `~/.sandbox-run/cache/npm` | `~/.local/share/pnpm` | `~/.local/share/pnpm` |
+| pnpm | `~/.sandbox-run/cache/npm` | `~/.local/share/pnpm` | `~/.local/share/pnpm/bin` |
 | uv/pip | `~/.sandbox-run/cache/uv`, `~/.sandbox-run/cache/pip` | `~/.local/share/uv` | `~/.local/bin` |
 | Go | `~/.sandbox-run/cache/go/mod` | `~/.local/share/go` | `~/.local/bin` |
 | Cargo | (in CARGO_HOME) | `~/.local/share/cargo` | `~/.local/share/cargo/bin` |

@@ -6,5 +6,5 @@ configure_npm() {
         --setenv PNPM_HOME "$HOME/.local/share/pnpm"
     )
     PATH_ADDITIONS+=("$HOME/.local/share/npm/bin")
-    PATH_ADDITIONS+=("$HOME/.local/share/pnpm")
+    PATH_ADDITIONS+=("$HOME/.local/share/pnpm/bin")
 }
